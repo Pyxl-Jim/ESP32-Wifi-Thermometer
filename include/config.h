@@ -23,9 +23,12 @@
 // ============================================
 // Timing Configuration
 // ============================================
-#define READING_INTERVAL_MS     10000   // 10 seconds
+#define READING_INTERVAL_SEC    30      // seconds between readings (deep sleep duration)
 #define WIFI_TIMEOUT_MS         20000   // 20 seconds to connect
 #define HTTP_TIMEOUT_MS         10000   // 10 seconds for HTTP request
+
+// NTP re-sync interval - no need to sync every wake cycle
+#define NTP_SYNC_INTERVAL_BOOTS 20      // Re-sync NTP every N wake cycles
 
 // ============================================
 // Status LED (GPIO2 = onboard LED on most ESP32 boards)

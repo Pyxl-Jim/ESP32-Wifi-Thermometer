@@ -9,11 +9,16 @@
 #include <time.h>
 #include "config.h"
 
-WiFiMulti wifiMulti;
+// ============================================
+// RTC Memory - persists across deep sleep cycles
+// ============================================
+RTC_DATA_ATTR int bootCount = 0;
+RTC_DATA_ATTR bool timeSynced = false;
 
 // ============================================
 // Sensor Setup
 // ============================================
+WiFiMulti wifiMulti;
 OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature sensors(&oneWire);
 
@@ -29,7 +34,6 @@ const char* LOG_FILE  = "/thermometer.log";
 void logMessage(const String& message) {
     String timestamp = "";
 
-    // Get time if NTP is synced
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
         char buf[20];
@@ -40,7 +44,6 @@ void logMessage(const String& message) {
     String logLine = "[" + timestamp + "] " + message;
     Serial.println(logLine);
 
-    // Write to log file
     File file = LittleFS.open(LOG_FILE, FILE_APPEND);
     if (file) {
         file.println(logLine);
@@ -66,7 +69,7 @@ void ledBlink(int times, int delayMs = 100) {
 bool connectWiFi() {
     if (WiFi.status() == WL_CONNECTED) return true;
 
-    logMessage("Scanning for known networks...");
+    logMessage("Connecting to WiFi...");
 
     unsigned long startTime = millis();
     while (wifiMulti.run() != WL_CONNECTED) {
@@ -98,11 +101,12 @@ void syncTime() {
     }
 
     if (retries < 10) {
+        timeSynced = true;
         char buf[20];
         strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &timeinfo);
         logMessage("Time synced: " + String(buf));
     } else {
-        logMessage("NTP sync failed - timestamps may be incorrect");
+        logMessage("NTP sync failed");
     }
 }
 
@@ -112,7 +116,7 @@ void syncTime() {
 String getTimestamp() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
-        return String(millis());  // Fallback to uptime ms
+        return "boot-" + String(bootCount);
     }
     char buf[25];
     strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &timeinfo);
@@ -151,7 +155,6 @@ void storeReading(const String& timestamp, float tempC) {
         return;
     }
 
-    // Write header if new file
     if (!fileExists) {
         file.println("timestamp,temperature_celsius");
     }
@@ -164,19 +167,11 @@ void storeReading(const String& timestamp, float tempC) {
 // Send to Web Server
 // ============================================
 bool sendToServer(float tempC, const String& timestamp) {
-    if (WiFi.status() != WL_CONNECTED) {
-        if (!connectWiFi()) {
-            logMessage("Cannot send - no WiFi");
-            return false;
-        }
-    }
-
     HTTPClient http;
     http.begin(SERVER_URL);
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(HTTP_TIMEOUT_MS);
 
-    // Build JSON payload
     JsonDocument doc;
     doc["temperature"] = tempC;
     doc["unit"]        = "celsius";
@@ -187,74 +182,87 @@ bool sendToServer(float tempC, const String& timestamp) {
     serializeJson(doc, payload);
 
     int responseCode = http.POST(payload);
+    http.end();
 
     if (responseCode == 200) {
-        logMessage("Sent " + String(tempC, 2) + "°C successfully");
-        http.end();
+        logMessage("Sent " + String(tempC, 2) + "°C (boot #" + String(bootCount) + ")");
         return true;
     } else {
         logMessage("Server error: " + String(responseCode));
-        http.end();
         return false;
     }
 }
 
 // ============================================
-// Setup
+// Go to deep sleep
+// ============================================
+void goToSleep() {
+    logMessage("Sleeping for " + String(READING_INTERVAL_SEC) + "s...");
+    Serial.flush();
+
+    // Turn off WiFi and BT to save power
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    esp_sleep_enable_timer_wakeup((uint64_t)READING_INTERVAL_SEC * 1000000ULL);
+    esp_deep_sleep_start();
+}
+
+// ============================================
+// Setup - runs on every wake from deep sleep
 // ============================================
 void setup() {
     Serial.begin(115200);
-    delay(1000);
+    delay(500);
+
+    bootCount++;
 
     pinMode(LED_PIN, OUTPUT);
-    ledBlink(1, 500);
+    ledBlink(1, 200);
 
     Serial.println("\n=============================");
     Serial.println("  WiFi Thermometer - ESP32");
+    Serial.printf("  Wake #%d\n", bootCount);
     Serial.println("=============================");
 
     // Initialize LittleFS
     if (!LittleFS.begin(true)) {
-        Serial.println("LittleFS mount failed - reformatting...");
-        LittleFS.format();
-        LittleFS.begin();
+        Serial.println("LittleFS mount failed");
     }
-    Serial.println("LittleFS mounted");
 
     // Initialize sensor
     sensors.begin();
-    int deviceCount = sensors.getDeviceCount();
-    if (deviceCount == 0) {
-        Serial.println("WARNING: No DS18B20 sensors found!");
-        Serial.println("Check wiring and pull-up resistor.");
-    } else {
-        Serial.println("Found " + String(deviceCount) + " sensor(s)");
+    if (sensors.getDeviceCount() == 0) {
+        logMessage("ERROR: No DS18B20 sensor found!");
+        ledBlink(5, 50);
+        goToSleep();
+        return;
     }
 
-    // Register all WiFi networks
+    // Register WiFi networks
     struct { const char* ssid; const char* pass; } networks[] = WIFI_NETWORKS;
     int networkCount = sizeof(networks) / sizeof(networks[0]);
     for (int i = 0; i < networkCount; i++) {
         wifiMulti.addAP(networks[i].ssid, networks[i].pass);
-        logMessage("Added network: " + String(networks[i].ssid));
     }
 
     // Connect to WiFi
-    if (connectWiFi()) {
-        syncTime();
+    if (!connectWiFi()) {
+        logMessage("No WiFi - storing reading locally only");
+        float tempC = readTemperature();
+        if (!isnan(tempC)) {
+            storeReading(getTimestamp(), tempC);
+            logMessage("Stored locally: " + String(tempC, 2) + "°C");
+        }
+        ledBlink(3, 50);
+        goToSleep();
+        return;
     }
 
-    logMessage("ESP32 Thermometer started");
-    logMessage("Sensor pin: GPIO" + String(ONE_WIRE_PIN));
-    logMessage("Server: " + String(SERVER_URL));
-    logMessage("Interval: " + String(READING_INTERVAL_MS / 1000) + " seconds");
-}
-
-// ============================================
-// Main Loop
-// ============================================
-void loop() {
-    unsigned long loopStart = millis();
+    // Sync NTP on first boot or every N cycles
+    if (!timeSynced || bootCount % NTP_SYNC_INTERVAL_BOOTS == 0) {
+        syncTime();
+    }
 
     // Read temperature
     float tempC = readTemperature();
@@ -262,26 +270,24 @@ void loop() {
     if (!isnan(tempC)) {
         String timestamp = getTimestamp();
 
-        // Log to serial
-        Serial.println("Temperature: " + String(tempC, 2) + "°C / " +
-                       String((tempC * 9.0 / 5.0) + 32.0, 2) + "°F");
+        Serial.printf("Temperature: %.2f°C / %.2f°F\n",
+            tempC, (tempC * 9.0 / 5.0) + 32.0);
 
-        // Store locally
         storeReading(timestamp, tempC);
 
-        // Send to server
         if (sendToServer(tempC, timestamp)) {
-            ledBlink(1);  // Success blink
+            ledBlink(1);
         } else {
-            ledBlink(3, 50);  // Error blink
+            ledBlink(3, 50);
         }
     } else {
-        ledBlink(5, 50);  // Sensor error blink
+        ledBlink(5, 50);
     }
 
-    // Wait for next reading (accounting for execution time)
-    unsigned long elapsed = millis() - loopStart;
-    if (elapsed < READING_INTERVAL_MS) {
-        delay(READING_INTERVAL_MS - elapsed);
-    }
+    goToSleep();
 }
+
+// ============================================
+// Loop - never runs (device sleeps between readings)
+// ============================================
+void loop() {}
