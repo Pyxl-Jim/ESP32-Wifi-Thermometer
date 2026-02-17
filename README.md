@@ -46,18 +46,36 @@ Install the [PlatformIO extension](https://platformio.org/install/ide?install=vs
 
 Open the `ESP32_Thermometer` folder in VSCode with PlatformIO.
 
-### 3. Configure WiFi and Server
+### 3. Configure WiFi Credentials
 
-Edit `include/config.h`:
+WiFi credentials are stored in a gitignored `secrets.h` file so they are never committed to the repo.
 
-```cpp
-#define WIFI_SSID       "YourNetworkName"
-#define WIFI_PASSWORD   "YourPassword"
-#define SERVER_URL      "https://wifitemp.jpmac.com"
-#define DEVICE_NAME     "esp32_wroom"
+```bash
+cp include/secrets.h.example include/secrets.h
 ```
 
-### 4. Build and Upload
+Edit `include/secrets.h` with your networks:
+
+```cpp
+#define WIFI_NETWORKS { \
+    { "HomeNetwork",  "homepassword"  }, \
+    { "WorkNetwork",  "workpassword"  }, \
+    { "PhoneHotspot", "hotspotpassword" }, \
+}
+```
+
+The ESP32 will scan and connect to whichever network is available, choosing the strongest signal if multiple are in range. Add as many networks as you need.
+
+### 4. Configure Server and Device
+
+Edit `include/config.h` for non-sensitive settings:
+
+```cpp
+#define SERVER_URL   "https://wifitemp.jpmac.com"
+#define DEVICE_NAME  "esp32_wroom"
+```
+
+### 5. Build and Upload
 
 ```bash
 # Build
@@ -134,6 +152,16 @@ Temperature: 22.62°C / 72.72°F
 }
 ```
 
+**New machine setup:**
+```bash
+git clone git@github.com:Pyxl-Jim/ESP32-Wifi-Thermometer.git
+cd ESP32-Wifi-Thermometer
+cp include/secrets.h.example include/secrets.h
+# Edit secrets.h with your WiFi networks
+# Then build and upload
+pio run --target upload
+```
+
 ## Accessing Local Data
 
 Using PlatformIO filesystem commands:
@@ -153,9 +181,10 @@ pio run --target downloadfs
 - Check `ONE_WIRE_PIN` in config.h matches your wiring
 
 ### WiFi won't connect
-- Verify SSID and password in config.h
+- Verify SSIDs and passwords in `secrets.h`
 - ESP32 only supports 2.4GHz WiFi (not 5GHz)
 - Check router allows new devices
+- Make sure at least one network in `WIFI_NETWORKS` is in range
 
 ### HTTPS errors
 - ESP32 connects to HTTPS by default
