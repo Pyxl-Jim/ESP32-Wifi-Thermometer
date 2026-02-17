@@ -13,26 +13,43 @@ and sending data to https://wifitemp.jpmac.com.
 ### Wiring
 
 ```
-ESP32 WROOM              DS18B20
-──────────                ───────
-3.3V (any)  ──────────── VDD (Red)
-GND  (any)  ──────────── GND (Black)
-GPIO4       ──────────── DATA (Yellow)
+DS18B20 Sensor       ESP32 WROOM
+──────────────        ───────────
+VDD  (Red)    ──────── 3.3V
+GND  (Black)  ──────── GND
+DATA (Yellow) ──────── GPIO4
 
 4.7kΩ resistor between 3.3V and GPIO4
 ```
 
-**Pin reference on ESP32 WROOM:**
+### ESP32 WROOM-32 Pinout
+
 ```
-┌───────────────────┐
-│  ESP32 WROOM-32   │
-│                   │
-│  3.3V  ●          │  ← Power for sensor
-│  GND   ●          │  ← Ground for sensor
-│  GPIO4 ●          │  ← Data line (with 4.7kΩ pull-up)
-│  GPIO2 ●          │  ← Onboard LED (status indicator)
-└───────────────────┘
+                USB
+         ┌──────────────┐
+    3.3V ●              ● GND
+     GND ●              ● GPIO13
+  GPIO15 ●              ● GPIO12
+   GPIO2 ●  (LED)       ● GPIO14
+   GPIO0 ●              ● GPIO27
+   GPIO4 ●  ← DATA      ● GPIO26
+  GPIO16 ●              ● GPIO25
+  GPIO17 ●              ● GPIO33
+   GPIO5 ●              ● GPIO32
+  GPIO18 ●              ● GPIO35
+  GPIO19 ●              ● GPIO34
+  GPIO21 ●              ● GPIO39
+    GND  ●              ● GPIO36
+   GPIO1 ●              ● EN
+  GPIO22 ●              ● GPIO23
+         └──────────────┘
 ```
+
+### Pull-up Resistor (4.7kΩ)
+
+The 4.7kΩ pull-up resistor is required between **3.3V** and **GPIO4**.
+Same value and color code as the Pi Zero version:
+- Yellow (4), Violet (7), Red (×100) = 4,700Ω
 
 > **Note:** You can use any GPIO pin. Update `ONE_WIRE_PIN` in `config.h` if you use a different pin.
 
