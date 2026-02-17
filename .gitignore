@@ -4,6 +4,5 @@
 # VSCode
 .vscode/
 
-# Config with credentials (copy from config.h.example)
-# If you want to keep config.h private, uncomment:
-# include/config.h
+# WiFi credentials - never commit this!
+include/secrets.h

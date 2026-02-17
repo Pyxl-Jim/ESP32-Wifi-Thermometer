@@ -1,15 +1,11 @@
 #pragma once
 
 // ============================================
-// WiFi Configuration
-// Add as many networks as you need.
-// ESP32 will connect to the strongest available.
+// WiFi Credentials
+// Add networks to include/secrets.h (gitignored)
+// Copy include/secrets.h.example to get started
 // ============================================
-#define WIFI_NETWORKS { \
-    { "YOUR_SSID_1", "YOUR_PASSWORD_1" }, \
-    { "YOUR_SSID_2", "YOUR_PASSWORD_2" }, \
-    { "YOUR_SSID_3", "YOUR_PASSWORD_3" }, \
-}
+#include "secrets.h"
 
 // ============================================
 // Server Configuration
