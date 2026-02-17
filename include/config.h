@@ -23,7 +23,7 @@
 // ============================================
 // Timing Configuration
 // ============================================
-#define READING_INTERVAL_SEC    30      // seconds between readings (deep sleep duration)
+#define READING_INTERVAL_SEC    60      // seconds between readings (deep sleep duration)
 #define WIFI_TIMEOUT_MS         20000   // 20 seconds to connect
 #define HTTP_TIMEOUT_MS         10000   // 10 seconds for HTTP request
 
