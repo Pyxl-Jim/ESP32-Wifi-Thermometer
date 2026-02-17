@@ -113,9 +113,17 @@ Or use the PlatformIO toolbar in VSCode:
 ## Features
 
 ### Temperature Reading
-- Reads DS18B20 sensor every 10 seconds
+- Reads DS18B20 sensor every 60 seconds
 - Displays both °C and °F in serial monitor
 - Handles sensor errors gracefully
+
+### Deep Sleep (Battery Optimized)
+- ESP32 sleeps between readings (~10µA vs ~240mA active)
+- Wakes up, reads, sends, goes back to sleep
+- RTC memory preserves state across sleep cycles
+- WiFi and BT disabled before sleeping
+- Stores readings locally if WiFi unavailable
+- **Estimated battery life: 10-12 weeks on 2500mAh LiPo**
 
 ### Local Storage (LittleFS)
 - Stores readings to `/temperature_data.csv` on ESP32 flash
@@ -216,7 +224,8 @@ pio run --target downloadfs
 | Setting | Default | Description |
 |---|---|---|
 | `ONE_WIRE_PIN` | 4 | GPIO pin for DS18B20 data |
-| `READING_INTERVAL_MS` | 10000 | Time between readings (ms) |
+| `READING_INTERVAL_SEC` | 60 | Deep sleep duration between readings (seconds) |
+| `NTP_SYNC_INTERVAL_BOOTS` | 20 | Re-sync NTP every N wake cycles |
 | `WIFI_TIMEOUT_MS` | 20000 | WiFi connection timeout (ms) |
 | `HTTP_TIMEOUT_MS` | 10000 | HTTP request timeout (ms) |
 | `LED_PIN` | 2 | Status LED GPIO (onboard LED) |
