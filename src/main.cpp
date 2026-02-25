@@ -127,6 +127,9 @@ String getTimestamp() {
 // Temperature Sensor
 // ============================================
 float readTemperature() {
+    // Discard first read - DS18B20 returns 85°C (power-on default) on first conversion
+    sensors.requestTemperatures();
+    delay(800);
     sensors.requestTemperatures();
     float temp = sensors.getTempCByIndex(0);
 
