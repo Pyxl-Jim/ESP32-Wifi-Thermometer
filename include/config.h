@@ -12,8 +12,10 @@
 // ============================================
 #define SERVER_URL      "https://wifitemp.jpmac.com"
 
+// DEVICE_NAME must be defined in secrets.h
+// e.g. #define DEVICE_NAME "Greenhouse 2"
 #ifndef DEVICE_NAME
-#define DEVICE_NAME     "esp32_wroom_2"
+#error "DEVICE_NAME must be defined in secrets.h"
 #endif
 
 // ============================================
