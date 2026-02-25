@@ -2,12 +2,21 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <HTTPClient.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <time.h>
 #include "config.h"
+
+#ifdef USE_AHT20
+#include <Wire.h>
+#include <Adafruit_AHTX0.h>
+Adafruit_AHTX0 aht;
+#else
+#include <OneWire.h>
+#include <DallasTemperature.h>
+OneWire oneWire(ONE_WIRE_PIN);
+DallasTemperature sensors(&oneWire);
+#endif
 
 // ============================================
 // RTC Memory - persists across deep sleep cycles
@@ -19,8 +28,6 @@ RTC_DATA_ATTR bool timeSynced = false;
 // Sensor Setup
 // ============================================
 WiFiMulti wifiMulti;
-OneWire oneWire(ONE_WIRE_PIN);
-DallasTemperature sensors(&oneWire);
 
 // ============================================
 // Local storage
@@ -124,9 +131,39 @@ String getTimestamp() {
 }
 
 // ============================================
-// Temperature Sensor
+// Sensor reading (temp in °C, humidity in %RH or NAN)
 // ============================================
-float readTemperature() {
+struct SensorReading {
+    float tempC    = NAN;
+    float humidity = NAN;
+};
+
+SensorReading readSensors() {
+    SensorReading result;
+
+#ifdef USE_AHT20
+    sensors_event_t humEvent, tempEvent;
+    if (!aht.getEvent(&humEvent, &tempEvent)) {
+        logMessage("Sensor error: AHT20 read failed");
+        return result;
+    }
+
+    float t = tempEvent.temperature;
+    float h = humEvent.relative_humidity;
+
+    if (t < -40.0 || t > 85.0) {
+        logMessage("Sensor error: temperature out of range: " + String(t));
+        return result;
+    }
+    if (h < 0.0 || h > 100.0) {
+        logMessage("Sensor error: humidity out of range: " + String(h));
+        return result;
+    }
+
+    result.tempC    = t;
+    result.humidity = h;
+
+#else
     // Discard first read - DS18B20 returns 85°C (power-on default) on first conversion
     sensors.requestTemperatures();
     delay(800);
@@ -135,21 +172,23 @@ float readTemperature() {
 
     if (temp == DEVICE_DISCONNECTED_C) {
         logMessage("Sensor error: device disconnected");
-        return NAN;
+        return result;
     }
-
     if (temp < -55.0 || temp > 125.0) {
         logMessage("Sensor error: reading out of range: " + String(temp));
-        return NAN;
+        return result;
     }
 
-    return temp;
+    result.tempC = temp;
+#endif
+
+    return result;
 }
 
 // ============================================
 // Local CSV Storage
 // ============================================
-void storeReading(const String& timestamp, float tempC) {
+void storeReading(const String& timestamp, float tempC, float humidity) {
     bool fileExists = LittleFS.exists(DATA_FILE);
 
     File file = LittleFS.open(DATA_FILE, FILE_APPEND);
@@ -159,17 +198,18 @@ void storeReading(const String& timestamp, float tempC) {
     }
 
     if (!fileExists) {
-        file.println("timestamp,temperature_celsius");
+        file.println("timestamp,temperature_celsius,humidity_rh");
     }
 
-    file.println(timestamp + "," + String(tempC, 2));
+    String humStr = isnan(humidity) ? "" : String(humidity, 1);
+    file.println(timestamp + "," + String(tempC, 2) + "," + humStr);
     file.close();
 }
 
 // ============================================
 // Send to Web Server
 // ============================================
-bool sendToServer(float tempC, const String& timestamp) {
+bool sendToServer(float tempC, float humidity, const String& timestamp) {
     HTTPClient http;
     http.begin(SERVER_URL);
     http.addHeader("Content-Type", "application/json");
@@ -180,6 +220,9 @@ bool sendToServer(float tempC, const String& timestamp) {
     doc["unit"]        = "celsius";
     doc["timestamp"]   = timestamp;
     doc["device"]      = DEVICE_NAME;
+    if (!isnan(humidity)) {
+        doc["humidity"] = humidity;
+    }
 
     String payload;
     serializeJson(doc, payload);
@@ -188,7 +231,10 @@ bool sendToServer(float tempC, const String& timestamp) {
     http.end();
 
     if (responseCode == 200) {
-        logMessage("Sent " + String(tempC, 2) + "°C (boot #" + String(bootCount) + ")");
+        String msg = "Sent " + String(tempC, 2) + "°C";
+        if (!isnan(humidity)) msg += " / " + String(humidity, 1) + "% RH";
+        msg += " (boot #" + String(bootCount) + ")";
+        logMessage(msg);
         return true;
     } else {
         logMessage("Server error: " + String(responseCode));
@@ -234,6 +280,16 @@ void setup() {
     }
 
     // Initialize sensor
+#ifdef USE_AHT20
+    Wire.begin(I2C_SDA, I2C_SCL);
+    if (!aht.begin()) {
+        logMessage("ERROR: AHT20 not found! Check wiring (SDA=" + String(I2C_SDA) + " SCL=" + String(I2C_SCL) + ")");
+        ledBlink(5, 50);
+        goToSleep();
+        return;
+    }
+    logMessage("AHT20 sensor ready");
+#else
     sensors.begin();
     if (sensors.getDeviceCount() == 0) {
         logMessage("ERROR: No DS18B20 sensor found!");
@@ -241,6 +297,7 @@ void setup() {
         goToSleep();
         return;
     }
+#endif
 
     // Register WiFi networks
     struct { const char* ssid; const char* pass; } networks[] = WIFI_NETWORKS;
@@ -252,10 +309,10 @@ void setup() {
     // Connect to WiFi
     if (!connectWiFi()) {
         logMessage("No WiFi - storing reading locally only");
-        float tempC = readTemperature();
-        if (!isnan(tempC)) {
-            storeReading(getTimestamp(), tempC);
-            logMessage("Stored locally: " + String(tempC, 2) + "°C");
+        SensorReading reading = readSensors();
+        if (!isnan(reading.tempC)) {
+            storeReading(getTimestamp(), reading.tempC, reading.humidity);
+            logMessage("Stored locally: " + String(reading.tempC, 2) + "°C");
         }
         ledBlink(3, 50);
         goToSleep();
@@ -267,18 +324,21 @@ void setup() {
         syncTime();
     }
 
-    // Read temperature
-    float tempC = readTemperature();
+    // Read sensors
+    SensorReading reading = readSensors();
 
-    if (!isnan(tempC)) {
+    if (!isnan(reading.tempC)) {
         String timestamp = getTimestamp();
 
         Serial.printf("Temperature: %.2f°C / %.2f°F\n",
-            tempC, (tempC * 9.0 / 5.0) + 32.0);
+            reading.tempC, (reading.tempC * 9.0 / 5.0) + 32.0);
+        if (!isnan(reading.humidity)) {
+            Serial.printf("Humidity:    %.1f%%\n", reading.humidity);
+        }
 
-        storeReading(timestamp, tempC);
+        storeReading(timestamp, reading.tempC, reading.humidity);
 
-        if (sendToServer(tempC, timestamp)) {
+        if (sendToServer(reading.tempC, reading.humidity, timestamp)) {
             ledBlink(1);
         } else {
             ledBlink(3, 50);

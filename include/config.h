@@ -21,10 +21,20 @@
 // ============================================
 // Sensor Configuration
 // ============================================
+// DS18B20 (default sensor, used on WROOM)
 // GPIO pin connected to DS18B20 data line
 // Requires 4.7kΩ pull-up resistor to 3.3V
 #ifndef ONE_WIRE_PIN
 #define ONE_WIRE_PIN    4
+#endif
+
+// AHT20 I2C sensor (used on ESP32-C3 with -DUSE_AHT20)
+// Default pins - override via build_flags: -DI2C_SDA=5 -DI2C_SCL=6
+#ifndef I2C_SDA
+#define I2C_SDA         21
+#endif
+#ifndef I2C_SCL
+#define I2C_SCL         22
 #endif
 
 // ============================================
