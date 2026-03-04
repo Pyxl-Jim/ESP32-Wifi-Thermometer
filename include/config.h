@@ -40,12 +40,12 @@
 // ============================================
 // Timing Configuration
 // ============================================
-#define READING_INTERVAL_SEC    60      // seconds between readings (deep sleep duration)
+#define READING_INTERVAL_SEC    60      // seconds between readings
 #define WIFI_TIMEOUT_MS         20000   // 20 seconds to connect
 #define HTTP_TIMEOUT_MS         10000   // 10 seconds for HTTP request
 
-// NTP re-sync interval - no need to sync every wake cycle
-#define NTP_SYNC_INTERVAL_BOOTS 20      // Re-sync NTP every N wake cycles
+// NTP re-sync interval
+#define NTP_SYNC_INTERVAL       20      // Re-sync NTP every N readings
 
 // ============================================
 // Status LED

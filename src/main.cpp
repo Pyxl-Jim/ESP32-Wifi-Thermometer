@@ -19,15 +19,11 @@ DallasTemperature sensors(&oneWire);
 #endif
 
 // ============================================
-// RTC Memory - persists across deep sleep cycles
-// ============================================
-RTC_DATA_ATTR int bootCount = 0;
-RTC_DATA_ATTR bool timeSynced = false;
-
-// ============================================
-// Sensor Setup
+// State
 // ============================================
 WiFiMulti wifiMulti;
+int loopCount = 0;
+bool timeSynced = false;
 
 // ============================================
 // Local storage
@@ -123,7 +119,7 @@ void syncTime() {
 String getTimestamp() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
-        return "boot-" + String(bootCount);
+        return "loop-" + String(loopCount);
     }
     char buf[25];
     strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &timeinfo);
@@ -233,7 +229,7 @@ bool sendToServer(float tempC, float humidity, const String& timestamp) {
     if (responseCode == 200) {
         String msg = "Sent " + String(tempC, 2) + "°C";
         if (!isnan(humidity)) msg += " / " + String(humidity, 1) + "% RH";
-        msg += " (boot #" + String(bootCount) + ")";
+        msg += " (reading #" + String(loopCount) + ")";
         logMessage(msg);
         return true;
     } else {
@@ -243,35 +239,17 @@ bool sendToServer(float tempC, float humidity, const String& timestamp) {
 }
 
 // ============================================
-// Go to deep sleep
-// ============================================
-void goToSleep() {
-    logMessage("Sleeping for " + String(READING_INTERVAL_SEC) + "s...");
-    Serial.flush();
-
-    // Turn off WiFi and BT to save power
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-
-    esp_sleep_enable_timer_wakeup((uint64_t)READING_INTERVAL_SEC * 1000000ULL);
-    esp_deep_sleep_start();
-}
-
-// ============================================
-// Setup - runs on every wake from deep sleep
+// Setup - runs once on power-on
 // ============================================
 void setup() {
     Serial.begin(115200);
     delay(500);
-
-    bootCount++;
 
     pinMode(LED_PIN, OUTPUT);
     ledBlink(1, 200);
 
     Serial.println("\n=============================");
     Serial.println("  WiFi Thermometer - ESP32");
-    Serial.printf("  Wake #%d\n", bootCount);
     Serial.println("=============================");
 
     // Initialize LittleFS
@@ -285,7 +263,6 @@ void setup() {
     if (!aht.begin()) {
         logMessage("ERROR: AHT20 not found! Check wiring (SDA=" + String(I2C_SDA) + " SCL=" + String(I2C_SCL) + ")");
         ledBlink(5, 50);
-        goToSleep();
         return;
     }
     logMessage("AHT20 sensor ready");
@@ -294,7 +271,6 @@ void setup() {
     if (sensors.getDeviceCount() == 0) {
         logMessage("ERROR: No DS18B20 sensor found!");
         ledBlink(5, 50);
-        goToSleep();
         return;
     }
 #endif
@@ -306,7 +282,19 @@ void setup() {
         wifiMulti.addAP(networks[i].ssid, networks[i].pass);
     }
 
-    // Connect to WiFi
+    // Connect to WiFi and sync time
+    if (connectWiFi()) {
+        syncTime();
+    }
+}
+
+// ============================================
+// Loop - reads and transmits every READING_INTERVAL_SEC
+// ============================================
+void loop() {
+    loopCount++;
+
+    // Reconnect WiFi if dropped
     if (!connectWiFi()) {
         logMessage("No WiFi - storing reading locally only");
         SensorReading reading = readSensors();
@@ -315,12 +303,12 @@ void setup() {
             logMessage("Stored locally: " + String(reading.tempC, 2) + "°C");
         }
         ledBlink(3, 50);
-        goToSleep();
+        delay(READING_INTERVAL_SEC * 1000);
         return;
     }
 
-    // Sync NTP on first boot or every N cycles
-    if (!timeSynced || bootCount % NTP_SYNC_INTERVAL_BOOTS == 0) {
+    // Periodically re-sync NTP
+    if (!timeSynced || loopCount % NTP_SYNC_INTERVAL == 0) {
         syncTime();
     }
 
@@ -347,10 +335,5 @@ void setup() {
         ledBlink(5, 50);
     }
 
-    goToSleep();
+    delay(READING_INTERVAL_SEC * 1000);
 }
-
-// ============================================
-// Loop - never runs (device sleeps between readings)
-// ============================================
-void loop() {}
